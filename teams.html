@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Face Off Stats - Gérer l'équipe Master</title>
+    <link rel="stylesheet" href="style.css" />
+    <style>
+        /* Style simple pour l'en-tête interne */
+        .internal-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between; /* Pour espacer le bouton retour et le reste */
+            padding: var(--spacing-small) var(--spacing-medium);
+            background: var(--gradient-header);
+            color: var(--color-text-light);
+            border-radius: var(--border-radius-medium);
+            margin-bottom: var(--spacing-large);
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .internal-header .header-content {
+            display: flex;
+            align-items: center;
+            gap: var(--spacing-medium);
+        }
+        .internal-header .logo {
+            max-width: 50px; /* Plus petit logo */
+            margin: 0;
+        }
+        .internal-header h1 {
+            color: inherit;
+            font-size: 1.5rem;
+            margin: 0; /* Annule la marge par défaut */
+        }
+        /* Assurez-vous que le style .btn--small existe dans style.css */
+         .btn--small {
+             padding: var(--spacing-small) var(--spacing-medium);
+             font-size: 0.85rem;
+         }
+
+    </style>
+</head>
+<body>
+
+    <header class="internal-header">
+        <div class="header-content">
+             <img src="spinozzi-logo.png" alt="Logo Spinozzi Hockey" class="logo" />
+             <h1>Gérer l'équipe Master</h1>
+        </div>
+        <a href="index.html" class="btn btn--back btn--small">⬅ Retour Accueil</a>
+    </header>
+
+    <main class="page-container">
+
+        <div class="team-banner">
+            <h2 id="current-team-name">Équipe : Nouvelle</h2>
+            <img id="current-team-logo" src="spinozzi-logo.png" alt="Logo de l'équipe" class="logo" style="width: 60px; height: auto;"/>
+        </div>
+
+        <form id="team-info-form">
+            <h2>Informations de l'équipe</h2>
+            <label for="team-name">Nom de l'équipe :</label>
+            <input type="text" id="team-name" placeholder="Nom de votre équipe principale" required />
+
+            <label for="team-logo">Logo de l'équipe :</label>
+            <input type="file" id="team-logo" accept="image/*" />
+            <label style="display: flex; align-items: center; margin-top: var(--spacing-medium);">
+                <input type="checkbox" id="is-master-team" style="width: auto; margin-right: var(--spacing-small);" />
+                Ceci est mon équipe "Master" (utilisée par défaut dans les matchs)
+            </label>
+
+            <button type="submit" class="btn" style="margin-top: var(--spacing-medium);">💾 Enregistrer l'équipe</button>
+            <p id="team-confirmation" class="confirmation-message" aria-live="polite" style="margin-top: var(--spacing-small);"></p>
+        </form>
+
+        <hr />
+
+        <section aria-labelledby="player-section-title">
+            <h2 id="player-section-title">Joueurs de l'équipe</h2>
+            <form id="player-form">
+                <h3>Ajouter / Modifier un Joueur</h3>
+                <input type="hidden" id="edit-index" value="-1"> <label for="player-name">Nom :</label>
+                <input type="text" id="player-name" placeholder="Nom du joueur" required />
+
+                <label for="player-number">Numéro :</label>
+                <input type="number" id="player-number" placeholder="Numéro de maillot" required />
+
+                <label for="player-position">Position :</label>
+                <select id="player-position" required>
+                    <option value="">-- Choisir --</option>
+                    <option value="Forward">Attaquant (Forward)</option>
+                    <option value="Defense">Défenseur (Defense)</option>
+                    <option value="Goalie">Gardien (Goalie)</option>
+                </select>
+
+                <button type="submit" id="player-submit-btn" class="btn">➕ Ajouter Joueur</button>
+            </form>
+
+            <div class="actions-bar" style="margin-top: var(--spacing-large); margin-bottom: var(--spacing-medium); text-align: center;">
+                <button type="button" id="sort-list-btn" class="btn btn--small">🔢 Trier par N°</button>
+                <button type="button" id="clear-list-btn" class="btn btn--danger btn--small">🗑️ Vider la liste</button>
+            </div>
+
+            <h3>Liste des joueurs</h3>
+            <ul id="player-list" class="data-list">
+                <li style="text-align: center; color: #666;">Aucun joueur ajouté pour le moment.</li>
+            </ul>
+        </section>
+
+        <hr />
+
+        <section aria-labelledby="import-section-title">
+            <h2 id="import-section-title">Importer depuis Excel / CSV</h2>
+             <p>Le fichier doit contenir les colonnes : "Nom", "Numéro", "Position" (commençant à la ligne 2 si la ligne 1 est l'en-tête).</p>
+            <input type="file" id="import-file" accept=".xlsx,.csv" style="margin-bottom: var(--spacing-medium);" />
+            <button type="button" id="import-btn" class="btn">Importer les joueurs</button>
+             <p id="import-confirmation" class="confirmation-message" aria-live="polite" style="margin-top: var(--spacing-small);"></p>
+        </section>
+
+    </main>
+
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
+    <script src="utils.js"></script>
+    <script src="teams.js"></script>
+
+</body>
+</html>

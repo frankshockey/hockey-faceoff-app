@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Face Off Stats - Gérer les équipes adverses</title>
+    <link rel="stylesheet" href="style.css" />
+    <style>
+        /* Styles pour l'en-tête interne (identique à teams.html) */
+        .internal-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: var(--spacing-small) var(--spacing-medium);
+            background: var(--gradient-header);
+            color: var(--color-text-light);
+            border-radius: var(--border-radius-medium);
+            margin-bottom: var(--spacing-large);
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .internal-header .header-content {
+            display: flex;
+            align-items: center;
+            gap: var(--spacing-medium);
+        }
+        .internal-header .logo { max-width: 50px; margin: 0; }
+        .internal-header h1 { color: inherit; font-size: 1.5rem; margin: 0; }
+        /* Assurez-vous que .btn--small existe dans style.css */
+         .btn--small { padding: var(--spacing-small) var(--spacing-medium); font-size: 0.85rem; }
+        .team-selection-box { display: flex; align-items: center; gap: var(--spacing-medium); flex-wrap: wrap; }
+        .team-selection-box label { margin-bottom: 0; /* Ajustement pour alignement */ }
+        .team-selection-box select { width: auto; flex-grow: 1; margin-bottom: 0; } /* Ajustement pour flex */
+    </style>
+</head>
+<body>
+
+    <header class="internal-header">
+        <div class="header-content">
+             <img src="spinozzi-logo.png" alt="Logo Spinozzi Hockey" class="logo" />
+             <h1>Gérer les équipes adverses</h1>
+        </div>
+        <a href="index.html" class="btn btn--back btn--small">⬅ Retour Accueil</a>
+    </header>
+
+    <main class="page-container">
+
+        <div class="team-selection-box" style="margin-bottom: var(--spacing-large);">
+            <label for="opponent-select">Équipe à gérer :</label>
+            <select id="opponent-select">
+                <option value="">-- Choisir ou Créer Nouvelle --</option>
+                </select>
+            <button type="button" id="new-team-btn" class="btn btn--small" title="Effacer le formulaire pour créer une nouvelle équipe">➕ Créer Nouvelle</button>
+            <button type="button" id="delete-team-btn" class="btn btn--danger btn--small" title="Supprimer l'équipe actuellement sélectionnée">❌ Supprimer</button>
+        </div>
+
+        <form id="opponent-info-form">
+            <input type="hidden" id="loaded-opponent-key" value=""> <h2>Informations de l'équipe adverse</h2>
+
+            <label for="opponent-name">Nom de l'équipe :</label>
+            <input type="text" id="opponent-name" placeholder="Nom de l'équipe adverse" required />
+
+            <label for="opponent-logo">Logo (Optionnel) :</label>
+            <input type="file" id="opponent-logo" accept="image/*" />
+            <img id="opponent-logo-preview" src="#" alt="Aperçu du logo" style="max-height: 50px; margin-top: var(--spacing-small); display: none; border: 1px solid var(--color-border); padding: 2px; border-radius: var(--border-radius-small);" />
+
+            <button type="submit" class="btn" style="margin-top: var(--spacing-medium);">💾 Enregistrer / Mettre à jour l'équipe</button>
+            <p id="opponent-confirmation" class="confirmation-message" aria-live="polite" style="margin-top: var(--spacing-small);"></p>
+        </form>
+
+        <hr />
+
+        <section id="opponent-players-section" aria-labelledby="opponent-player-section-title">
+            <h2 id="opponent-player-section-title">Joueurs de l'équipe adverse</h2>
+            <p id="player-section-notice" style="color: #666;">Chargez ou enregistrez une équipe ci-dessus pour gérer ses joueurs.</p>
+
+            <form id="opponent-player-form" style="display: none;"> <h3>Ajouter / Modifier un Joueur</h3>
+                <input type="hidden" id="opponent-edit-index" value="-1">
+
+                <label for="opponent-player-name">Nom :</label>
+                <input type="text" id="opponent-player-name" placeholder="Nom du joueur" required />
+
+                <label for="opponent-player-number">Numéro :</label>
+                <input type="number" id="opponent-player-number" placeholder="Numéro de maillot" required />
+
+                <label for="opponent-player-position">Position :</label>
+                <select id="opponent-player-position" required>
+                    <option value="">-- Choisir --</option>
+                    <option value="Forward">Attaquant (Forward)</option>
+                    <option value="Defense">Défenseur (Defense)</option>
+                    <option value="Goalie">Gardien (Goalie)</option>
+                </select>
+
+                <button type="submit" id="opponent-player-submit-btn" class="btn">➕ Ajouter Joueur</button>
+            </form>
+
+            <div id="opponent-player-actions" class="actions-bar" style="margin-top: var(--spacing-large); margin-bottom: var(--spacing-medium); text-align: center; display: none;"> <button type="button" id="opponent-sort-list-btn" class="btn btn--small">🔢 Trier par N°</button>
+                <button type="button" id="opponent-clear-list-btn" class="btn btn--danger btn--small">🗑️ Vider la liste</button>
+            </div>
+
+            <h3 id="opponent-player-list-title" style="display: none;">Liste des joueurs</h3> <ul id="opponent-player-list" class="data-list">
+                </ul>
+        </section>
+
+         <hr />
+
+        <section id="opponent-import-section" aria-labelledby="opponent-import-section-title" style="display: none;">
+             <h2 id="opponent-import-section-title">Importer depuis Excel / CSV</h2>
+             <p>Le fichier doit contenir les colonnes : "Nom", "Numéro", "Position". Les joueurs seront ajoutés à la liste de l'équipe adverse **actuellement chargée**.</p>
+            <input type="file" id="opponent-import-file" accept=".xlsx,.csv" style="margin-bottom: var(--spacing-medium);" />
+            <button type="button" id="opponent-import-btn" class="btn">Importer les joueurs</button>
+             <p id="opponent-import-confirmation" class="confirmation-message" aria-live="polite" style="margin-top: var(--spacing-small);"></p>
+        </section>
+
+
+    </main>
+
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
+    <script src="utils.js"></script>
+    <script src="opponents.js"></script>
+
+</body>
+</html>

@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="fr"> <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Face Off Stats - Nouveau Match</title>
+    <link rel="stylesheet" href="style.css" />
+    <style>
+        /* --- Styles En-tête Interne --- */
+        .internal-header { display: flex; align-items: center; justify-content: space-between; padding: var(--spacing-small) var(--spacing-medium); background: var(--gradient-header); color: var(--color-text-light); border-radius: var(--border-radius-medium); margin-bottom: var(--spacing-medium); box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .internal-header .header-content { display: flex; align-items: center; gap: var(--spacing-medium); }
+        .internal-header .logo { max-width: 50px; margin: 0; }
+        .internal-header h1 { color: inherit; font-size: 1.5rem; margin: 0; }
+        .btn--small { padding: var(--spacing-small) var(--spacing-medium); font-size: 0.85rem; }
+
+        /* --- Styles Page Match --- */
+        body { padding: 0; background: var(--color-background-medium); transition: padding-bottom 0.2s ease-in-out; }
+        body.confirmation-bar-active { padding-bottom: 70px; }
+        .undo-container { text-align: center; margin-bottom: var(--spacing-medium); min-height: 35px; }
+        .top-controls { display: flex; justify-content: flex-end; align-items: center; padding: 0 var(--spacing-medium) var(--spacing-medium); gap: var(--spacing-small); flex-wrap: wrap; }
+        .match-header-display { display: flex; justify-content: center; align-items: center; gap: var(--spacing-medium); padding: var(--spacing-small) var(--spacing-medium); background: #e9ecef; color: var(--color-text); font-size: 1.1rem; font-weight: bold; min-height: 50px; border-radius: var(--border-radius-small); margin: 0 var(--spacing-medium) var(--spacing-medium); flex-wrap: wrap; }
+        .team-logo-small { max-height: 40px; max-width: 50px; background-color: rgba(255,255,255,0.1); border-radius: var(--border-radius-small); }
+        .match-layout-container { display: flex; justify-content: center; gap: var(--spacing-medium); padding: 0 var(--spacing-medium) var(--spacing-medium); align-items: flex-start; }
+        .team-column { width: 200px; flex-shrink: 0; background-color: #fff; padding: var(--spacing-small); border-radius: var(--border-radius-medium); box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        .rink-container { width: 60%; min-width: 300px; max-width: 700px; background: white; padding: var(--spacing-medium); border-radius: var(--border-radius-medium); box-shadow: 0 2px 5px rgba(0,0,0,0.1); text-align: center; }
+        @media (max-width: 1024px) { .match-layout-container { flex-wrap: wrap; justify-content: center; } .rink-container { order: -1; width: 100%; max-width: 100%; margin-bottom: var(--spacing-medium); } .team-column { width: calc(50% - var(--spacing-medium)); min-width: 180px; } }
+        @media (max-width: 640px) { .match-layout-container { display: flex; flex-wrap: wrap; justify-content: center; padding: 0 var(--spacing-small) var(--spacing-small); } .rink-container { order: -1; width: 100%; margin-bottom: var(--spacing-medium); } .team-column { width: 100%; margin-bottom: var(--spacing-medium); order: 1; } .team-column:last-of-type { margin-bottom: 0; } }
+        .team-selector { text-align: center; margin-bottom: var(--spacing-small); } .team-selector h3 { font-size: 1.1rem; margin-bottom: var(--spacing-small); color: var(--color-primary); } .team-selector span, .team-selector select { font-weight: bold; display: block; margin-bottom: 5px; word-wrap: break-word; } .team-selector select { width: 100%; padding: 5px; font-size: 0.9rem; } .team-selector img { margin: 5px auto; }
+        .player-list-match h4 { font-size: 1rem; margin-bottom: var(--spacing-small); padding-bottom: 5px; border-bottom: 1px solid var(--color-border); text-align: center; }
+        .player-list-match ul { list-style: none; padding: 0; max-height: 300px; overflow-y: auto; font-size: 0.9rem; margin-bottom: 0; }
+        .player-list-match li { display: flex; justify-content: space-between; align-items: center; padding: 4px 8px; border-bottom: 1px solid #eee; cursor: pointer; word-wrap: break-word; transition: background-color 0.1s ease-in-out; } .player-list-match li:nth-child(odd) { background-color: #f9f9f9; } .player-list-match li:hover { background-color: #e0e0e0; } .player-list-match li.selecting-home, .player-list-match li.selecting-away { background-color: #ffeeba; } .player-list-match li.selected-home, .player-list-match li.selected-away { background-color: var(--color-accent); color: white; font-weight: bold;}
+        .player-faceoff-percentage { font-size: 0.8em; font-weight: normal; color: #666; background-color: #eee; padding: 1px 5px; border-radius: var(--border-radius-small); margin-left: var(--spacing-small); white-space: nowrap; } .player-faceoff-percentage.win { background-color: var(--color-success); color: white; } .player-faceoff-percentage.loss { background-color: var(--color-danger); color: white; }
+        .rink-image-wrapper { position: relative; } .rink-image-wrapper img { width: 100%; border-radius: var(--border-radius-small); display: block; }
+        .period-controls { margin-bottom: var(--spacing-medium); display: flex; justify-content: center; align-items: center; gap: var(--spacing-medium); } .period-controls strong { font-size: 1.1rem; }
+        #action-info { margin-top: var(--spacing-medium); padding: var(--spacing-small); background-color: #f0f0f0; border-radius: var(--border-radius-small); min-height: 40px; text-align: left; font-size: 0.9rem; }
+
+        /* Règle pour corriger clic sur points MÀJ */
+        .rink-image-wrapper img#rink-img {
+            pointer-events: none;
+        }
+
+        /* --- Styles Points MÀJ & % Zone --- */
+        .faceoff-point-wrapper { position: absolute; transform: translate(-50%, -50%); display: flex; flex-direction: column; align-items: center; cursor: pointer; z-index: 10; }
+        .faceoff-point { width: 25px; height: 25px; background: rgba(255, 0, 0, 0.3); border: 1px solid rgba(255, 0, 0, 0.6); border-radius: 50%; transition: background-color 0.2s ease, transform 0.2s ease; margin-bottom: 2px; }
+        .faceoff-point-wrapper:hover .faceoff-point { background: rgba(255, 0, 0, 0.6); transform: scale(1.2); }
+        .faceoff-point-wrapper.disabled { cursor: not-allowed; } .faceoff-point-wrapper.disabled .faceoff-point { background: rgba(150, 150, 150, 0.3); border-color: rgba(150, 150, 150, 0.6); } .faceoff-point-wrapper.disabled:hover .faceoff-point { transform: scale(1); }
+        .percentage-display { font-size: 0.75rem; font-weight: bold; padding: 1px 4px; border-radius: var(--border-radius-small); background-color: rgba(255, 255, 255, 0.7); color: #555; min-width: 30px; text-align: center; line-height: 1.2; }
+        .percentage-display.win { background-color: #28a745; color: white; } .percentage-display.loss { background-color: #dc3545; color: white; }
+        .zone-stats-container { display: grid; grid-template-columns: 1fr 1fr; gap: var(--spacing-small); background-color: #f8f9fa; padding: var(--spacing-small); border-radius: var(--border-radius-medium); margin-top: var(--spacing-medium); border: 1px solid var(--color-border); }
+        .zone-stat-box { text-align: center; font-size: 0.8rem; padding: 3px; }
+        .zone-stat-box .label { display: block; font-weight: bold; color: var(--color-primary); margin-bottom: 2px; font-size: 0.75rem; }
+        .zone-stat-box .value { display: inline-block; font-weight: bold; padding: 1px 5px; border-radius: var(--border-radius-small); min-width: 35px; color: #555; font-size: 0.8rem; }
+        .zone-stat-box .value.win { background-color: var(--color-success); color: white; } .zone-stat-box .value.loss { background-color: var(--color-danger); color: white; }
+        #winner-confirm-bar { display: none; padding: var(--spacing-small) var(--spacing-medium); background: linear-gradient(90deg, var(--color-primary), var(--color-secondary)); border-radius: var(--border-radius-medium) var(--border-radius-medium) 0 0; box-shadow: 0 -2px 5px rgba(0,0,0,0.15); text-align: center; position: fixed; bottom: 0; left: 0; right: 0; z-index: 100; margin: 0; }
+        #winner-confirm-bar.active { display: block; }
+        #winner-confirm-bar button { margin: 0 var(--spacing-small); color: var(--color-text-light); }
+        #winner-confirm-bar #confirm-win-home { background-color: var(--color-success); }
+        #winner-confirm-bar #confirm-win-away { background-color: var(--color-success); }
+        #winner-confirm-bar #cancel-faceoff-confirm { background-color: #aaa; }
+    </style>
+</head>
+<body>
+
+    <header class="internal-header">
+        <div class="header-content"><img src="spinozzi-logo.png" alt="Logo Spinozzi Hockey" class="logo" id="header-logo" /><h1>Nouveau Match</h1></div> <a href="index.html" class="btn btn--back btn--small">⬅ Retour Accueil</a>
+    </header>
+
+    <div class="undo-container"><button id="undo-last-btn" class="btn btn--small" style="display:none; background-color: #ffc107; color:#333;" title="Annuler MÀJ">↩️ Annuler</button></div>
+    <div class="top-controls"><button id="start-match-btn" class="btn btn--success btn--small">▶️ Démarrer</button><button id="end-match-btn" class="btn btn--danger btn--small" style="display:none;">⏹ Terminer</button><button id="cancel-match-btn" class="btn btn--small" style="display:none; background-color: #aaa;">❌ Annuler</button></div>
+    <div id="match-header" class="match-header-display"><span>Chargez équipes</span></div>
+
+    <main id="match-layout" class="match-layout-container">
+        <div class="team-column home-team">
+            <div class="team-selector" id="home-team-selector"><h3>Équipe Master</h3><span id="home-team-name">...</span><img id="home-team-logo" src="spinozzi-logo.png" alt="Logo Master" class="team-logo-small"/></div>
+            <div id="home-player-list" class="player-list-match"><h4>Joueurs Master</h4><ul></ul></div>
+            <div id="zone-summary-stats" class="zone-stats-container">
+                <div class="zone-stat-box"><span class="label">DZ %</span><span id="def-zone-pct" class="value">-</span></div> <div class="zone-stat-box"><span class="label">NZ %</span><span id="neu-zone-pct" class="value">-</span></div>
+                <div class="zone-stat-box"><span class="label">OZ %</span><span id="off-zone-pct" class="value">-</span></div> <div class="zone-stat-box"><span class="label">TOT %</span><span id="overall-pct" class="value">-</span></div>
+            </div>
+        </div>
+        <div class="rink-container">
+            <div class="period-controls"><button id="prev-period-btn" class="btn btn--small" disabled>◀</button><strong>Période <span id="current-period">1</span></strong><button id="next-period-btn" class="btn btn--small" disabled>▶</button></div>
+            <div class="rink-image-wrapper" style="position: relative;"><img src="rink.jpg" alt="Patinoire" id="rink-img"/></div>
+            <div id="action-info">Chargez équipes et démarrez.</div>
+            <div id="winner-confirm-bar"><button id="confirm-win-home" class="btn btn--small">Master Gagne</button><button id="confirm-win-away" class="btn btn--small">Adverse Gagne</button><button id="cancel-faceoff-confirm" class="btn btn--small">Annuler</button></div>
+        </div>
+        <div class="team-column away-team">
+            <div class="team-selector" id="away-team-selector"><h3>Équipe Adverse</h3><select id="opponent-select"><option value="">Choisir...</option></select><img id="away-team-logo" src="spinozzi-logo.png" alt="Logo Adverse" class="team-logo-small"/></div>
+            <div id="away-player-list" class="player-list-match"><h4>Joueurs Adversaires</h4><ul></ul></div>
+        </div>
+    </main>
+
+    <script src="utils.js"></script>
+    <script src="match.js"></script> </body>
+</html>
