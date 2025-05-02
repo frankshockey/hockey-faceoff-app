@@ -1,19 +1,35 @@
-// --- DEBUT DU CODE COMPLET POUR stats.js (Avec calculs et affichage mini-patinoire) ---
+// stats.js (Version Finale - Export CSV Tableau + Export TXT Joueur/Zone)
 'use strict';
 
-// Vérifie si les définitions de zones existent (devraient venir de utils.js)
-if (typeof faceoffPointsDefs === 'undefined' || typeof zoneMapping === 'undefined') {
-    alert("ERREUR: Les définitions des points de mise au jeu (faceoffPointsDefs ou zoneMapping) semblent manquantes. Assurez-vous que utils.js est correctement chargé AVANT stats.js et qu'il contient ces définitions.");
-    console.error("faceoffPointsDefs ou zoneMapping non définis. Vérifiez utils.js et l'ordre des scripts HTML.");
+// Vérification initiale des dépendances de utils.js
+// S'assure que TOUTES les fonctions nécessaires sont là
+if (typeof faceoffPointsDefs === 'undefined' || typeof zoneMapping === 'undefined' || typeof generatePlayerStatsCsv !== 'function' || typeof downloadFile !== 'function' || typeof showConfirmation !== 'function' || typeof getStoredTeamData !== 'function' || typeof slugify !== 'function' || typeof loadAndSetHeaderLogo !== 'function' ) {
+    const missingFuncs = [
+        (!faceoffPointsDefs || !zoneMapping) ? 'Definitions Zones' : null,
+        (typeof generatePlayerStatsCsv !== 'function') ? 'generatePlayerStatsCsv' : null,
+        (typeof downloadFile !== 'function') ? 'downloadFile' : null,
+        (typeof showConfirmation !== 'function') ? 'showConfirmation' : null,
+        (typeof getStoredTeamData !== 'function') ? 'getStoredTeamData' : null,
+        (typeof slugify !== 'function') ? 'slugify' : null,
+        (typeof loadAndSetHeaderLogo !== 'function') ? 'loadAndSetHeaderLogo' : null,
+    ].filter(Boolean).join(', ');
+
+    alert(`ERREUR CRITIQUE: Fonctions ou définitions manquantes depuis utils.js (${missingFuncs}). Vérifiez que utils.js est à jour et chargé avant stats.js.`);
+    console.error(`stats.js: Dépendances manquantes depuis utils.js: ${missingFuncs}`);
+    // Optionnel: throw new Error(`Dépendances utils.js manquantes: ${missingFuncs}`);
 }
+
 
 document.addEventListener('DOMContentLoaded', () => {
     console.log("stats.js loaded.");
 
     let allMatches = [];
     let selectedFilterValue = 'all';
-    let selectedViewMode = 'team';
-    let selectedPlayerNumber = null; // Stocke le NUMÉRO du joueur (string)
+    let selectedViewMode = 'team'; // 'team' ou 'player'
+    let selectedPlayerNumber = null; // Stocke le NUMÉRO du joueur sélectionné (string)
+    // Variables pour stocker les dernières données calculées
+    let currentAggregatedPlayerStats = null;
+    let currentZoneStats = null; // <<< NOUVEAU: Pour stocker les stats de zone
 
     // --- DOM Element References ---
     const playerStatsTableBody = document.getElementById('player-stats-table-body');
@@ -28,194 +44,302 @@ document.addEventListener('DOMContentLoaded', () => {
     const playerStatsSection = document.getElementById('player-stats');
     const globalStatsTitle = document.querySelector('#global-stats h2');
     const playerStatsTitle = document.querySelector('#player-stats h2');
-    const zoneStatsTitle = document.querySelector('#zone-stats-section h2'); // AJOUTÉ
-
-    // AJOUTÉ : Références pour les 12 affichages de pourcentage de zone
-    const zonePctDisplays = {}; // Utilise un objet pour un accès facile par ID
-    if (typeof faceoffPointsDefs !== 'undefined') { // Vérifie si la définition existe
-        faceoffPointsDefs.forEach(point => {
-             zonePctDisplays[point.id] = document.getElementById(`zone-pct-display-${point.id}`);
-        });
-    }
-    zonePctDisplays['DZ'] = document.getElementById('zone-pct-display-dz');
-    zonePctDisplays['NZ'] = document.getElementById('zone-pct-display-nz');
-    zonePctDisplays['OZ'] = document.getElementById('zone-pct-display-oz');
-    // Vérification rapide si tous les éléments ont été trouvés
-    console.log("Zone Pct Display Elements:", zonePctDisplays);
+    const zoneStatsTitle = document.querySelector('#zone-stats-section h2');
+    const zonePctDisplays = {}; // Sera rempli dans init
+    const exportPlayerStatsCsvBtn = document.getElementById('export-player-stats-csv-btn');
+    const statsConfirmationElement = document.getElementById('stats-confirmation'); // L'élément ajouté dans HTML
 
 
-    // --- Helper Functions --- (From utils.js)
-
-    // --- Data Loading ---
-    function getStoredTeamData(key) { /* ... (inchangé) ... */ try { const dataString = localStorage.getItem(key); if (!dataString) { console.warn(`Key ${key} empty.`); return null; } return JSON.parse(dataString); } catch (e) { console.error(`Error parsing ${key}:`, e); return null; } }
-
+    // --- Data Loading & Calculation ---
+    // NOTE: Ces fonctions sont candidates à être déplacées dans utils.js
     function loadMatchData() {
-        console.log("Loading match data...");
+        console.log("Chargement données matchs...");
         allMatches = [];
-        try { const keys = Object.keys(localStorage); for (const key of keys) { if (key.startsWith("match_")) { try { const matchDataString = localStorage.getItem(key); if (matchDataString) { const matchData = JSON.parse(matchDataString); if (matchData && typeof matchData === 'object' && matchData.id && matchData.events && matchData.opponentTeam && matchData.masterTeam) { allMatches.push(matchData); } else { console.warn(`Invalid data structure in ${key}, ignored.`, matchData); } } else { console.warn(`Key ${key} empty.`); } } catch (error) { console.error(`Error parsing JSON ${key}:`, error); } } } }
-        catch (error) { console.error("Error accessing localStorage:", error); return; }
-        console.log(`${allMatches.length} games loaded.`);
+        try { const keys = Object.keys(localStorage); for (const key of keys) { if (key.startsWith("match_")) { try { const matchData = getStoredTeamData(key); if (matchData?.id && matchData.events && matchData.masterTeam && matchData.opponentTeam) { allMatches.push(matchData); } else { console.warn(`Données invalides ignorées clé ${key}`); } } catch (error) { console.error(`Erreur parsing ${key}:`, error); } } } }
+        catch (error) { console.error("Erreur accès localStorage:", error); if(statsConfirmationElement) showConfirmation(statsConfirmationElement, "Erreur chargement données locales.", 6000, true); return; }
         allMatches.sort((a, b) => (b.startTime || 0) - (a.startTime || 0));
+        console.log(`${allMatches.length} match(s) chargé(s).`);
         populateFilterOptions();
-        updateStatsDisplay();
+        updateStatsDisplay(); // Lance la première MAJ
     }
+
+    function populateFilterOptions() {
+        // Fonction pour peupler le filtre de match (inchangée)
+        if (!filterSelectElement) return;
+        const selectedValue = filterSelectElement.value;
+        filterSelectElement.innerHTML = '<option value="all">All Games</option>';
+        allMatches.forEach(match => {
+             const option = document.createElement('option'); option.value = match.id;
+             const date = match.startTime ? new Date(match.startTime).toLocaleDateString('fr-CA') : '?';
+             const masterName = match.masterTeam?.name || 'Master'; const opponentName = match.opponentTeam?.name || '?';
+             option.textContent = `Game: ${masterName} vs ${opponentName} (${date})`;
+             filterSelectElement.appendChild(option);
+         });
+         filterSelectElement.value = selectedValue && filterSelectElement.querySelector(`option[value="${selectedValue}"]`) ? selectedValue : 'all';
+    }
+
+    // Calcul Stats Agrégées (inchangée fonctionnellement)
+    function calculateAggregatedPlayerStats(matchesToDisplay) {
+        const aggregated = { totalFaceoffs: 0, totalMasterWins: 0, players: {} };
+        matchesToDisplay.forEach(match => { if (match?.events) { match.events.forEach(event => { if (event?.type === 'faceoff') { aggregated.totalFaceoffs++; if (event.winner === 'home') aggregated.totalMasterWins++; if (event.homePlayerId) { const playerId = event.homePlayerId; const number = playerId.split('-')[0] || '?'; if (number !== '?' && !aggregated.players[playerId]) { aggregated.players[playerId] = { id: playerId, number: number, totalPlayed: 0, totalWins: 0 }; } if (aggregated.players[playerId]) { aggregated.players[playerId].totalPlayed++; if (event.winner === 'home') aggregated.players[playerId].totalWins++; } } } }); } });
+        console.log("Stats agrégées calculées:", aggregated);
+        return aggregated;
+    }
+
 
     // --- Filtering Logic and UI Update ---
+    function populatePlayerFilterOptions(aggregatedStats) {
+        // Fonction pour peupler le filtre joueur (inchangée)
+        if (!playerFilterSelect) return;
+        const selectedValue = playerFilterSelect.value;
+        playerFilterSelect.innerHTML = '<option value="">-- Select Player --</option>';
+        const playersMap = aggregatedStats?.players || {};
+        const playerNumbers = [...new Set(Object.values(playersMap).map(p => p.number))].filter(Boolean).map(n => parseInt(n, 10)).filter(n => !isNaN(n)).sort((a, b) => a - b);
+        playerNumbers.forEach(number => { const option = document.createElement('option'); option.value = number; option.textContent = `Player #${number}`; playerFilterSelect.appendChild(option); });
+        playerFilterSelect.value = selectedValue && playerFilterSelect.querySelector(`option[value="${selectedValue}"]`) ? selectedValue : '';
+    }
 
-    function populateFilterOptions() { /* ... (inchangé) ... */ if (!filterSelectElement) {console.error("Match filter select not found!"); return; } while (filterSelectElement.options.length > 1) { filterSelectElement.remove(1); } console.log("Populating game filter..."); const allOption = document.createElement('option'); allOption.value = 'all'; allOption.textContent = 'All Games'; filterSelectElement.appendChild(allOption); allMatches.forEach((match, index) => { if (!match || !match.id || !match.opponentTeam || !match.masterTeam ) { console.warn(`Invalid match structure index ${index}, skipped.`); return; } try { const option = document.createElement('option'); option.value = match.id; const date = match.startTime ? new Date(match.startTime).toLocaleDateString('en-CA') : '?'; const opponentName = match.opponentTeam.name || 'Unknown Opponent'; const masterName = match.masterTeam.name || 'Master'; option.textContent = `Game: ${masterName} vs ${opponentName} (${date})`; filterSelectElement.appendChild(option); } catch (error) { console.error(`ERROR creating option game index ${index}:`, error, match); } }); filterSelectElement.value = selectedFilterValue; console.log("Finished populating game filter."); }
-    function populatePlayerFilterOptions(playerStats) { /* ... (inchangé) ... */ if (!playerFilterSelect) { console.error("Player select not found!"); return; } playerFilterSelect.innerHTML = '<option value="">-- Select Player --</option>'; const playerNumbers = [...new Set(Object.values(playerStats).map(p => p.number))].filter(num => num && num !== '?').map(num => parseInt(num, 10)).filter(num => !isNaN(num)).sort((a, b) => a - b); if (playerNumbers.length === 0) { console.warn("No valid player numbers for dropdown."); } playerNumbers.forEach(number => { const option = document.createElement('option'); option.value = number; option.textContent = `Player #${number}`; playerFilterSelect.appendChild(option); }); }
-    function handleFilterChange(event) { const value = event.target.value; if (value === "") { selectedFilterValue = 'all'; filterSelectElement.value = 'all'; } else { selectedFilterValue = value; } console.log("Game filter selected:", selectedFilterValue); updateStatsDisplay(); }
-    function handleViewModeChange(event) { selectedViewMode = event.target.value; console.log("View mode:", selectedViewMode); if (selectedViewMode === 'player') { if (playerSelectContainer) playerSelectContainer.style.display = 'block'; } else { if (playerSelectContainer) playerSelectContainer.style.display = 'none'; if (playerFilterSelect) playerFilterSelect.value = ''; selectedPlayerNumber = null; if(selectedPlayerStatsDisplay) selectedPlayerStatsDisplay.innerHTML = ''; } updateStatsDisplay(); }
-    function handlePlayerFilterChange(event) { selectedPlayerNumber = event.target.value; console.log("Selected player number:", selectedPlayerNumber); updateStatsDisplay(); }
+    function handleFilterChange(event) { selectedFilterValue = event.target.value || 'all'; updateStatsDisplay(); }
+    function handleViewModeChange(event) { selectedViewMode = event.target.value; if (selectedViewMode === 'player') { playerSelectContainer.style.display = 'block'; } else { playerSelectContainer.style.display = 'none'; if (playerFilterSelect) playerFilterSelect.value = ''; selectedPlayerNumber = null; if(selectedPlayerStatsDisplay) selectedPlayerStatsDisplay.innerHTML = ''; } updateStatsDisplay(); }
+    function handlePlayerFilterChange(event) { selectedPlayerNumber = event.target.value || null; updateStatsDisplay(); }
 
-    // Fonction principale MAJ affichage
+
+    // Fonction principale MAJ affichage (MODIFIÉE pour gérer bouton export dans les 2 modes)
     function updateStatsDisplay() {
+        console.log(`MAJ Affichage : Match=${selectedFilterValue}, Mode=${selectedViewMode}, Joueur=${selectedPlayerNumber}`);
         let matchesToDisplay = []; let titleSuffix = "(All Games)"; let playerSuffix = ""; let currentMatch = null;
+
         if (selectedFilterValue === 'all') { matchesToDisplay = allMatches; }
-        else { currentMatch = allMatches.find(match => match.id === selectedFilterValue); if (currentMatch) { matchesToDisplay = [currentMatch]; const date = currentMatch.startTime ? new Date(currentMatch.startTime).toLocaleDateString('en-CA') : '?'; const opponentName = currentMatch.opponentTeam?.name || '?'; const masterName = currentMatch.masterTeam?.name || 'Master'; titleSuffix = `(Game: ${masterName} vs ${opponentName} - ${date})`; }
-            else { matchesToDisplay = allMatches; titleSuffix = "(All Games - Filter Error)"; if (filterSelectElement) filterSelectElement.value = 'all'; selectedFilterValue = 'all'; } }
+        else { currentMatch = allMatches.find(match => match.id === selectedFilterValue); if(currentMatch){ matchesToDisplay = [currentMatch]; const d=currentMatch.startTime?new Date(currentMatch.startTime).toLocaleDateString('fr-CA'):'?';const o=currentMatch.opponentTeam?.name||'?';const m=currentMatch.masterTeam?.name||'Master';titleSuffix=`(Match: ${m} vs ${o} - ${d})`;} else {matchesToDisplay=allMatches; titleSuffix="(All Games - Erreur Filtre)"; if(filterSelectElement)filterSelectElement.value='all'; selectedFilterValue='all';} }
 
-        const aggregatedPlayerStats = calculateAggregatedPlayerStats(matchesToDisplay);
-        populatePlayerFilterOptions(aggregatedPlayerStats.players); // Toujours peupler le select joueur
+        // *** Stocke les stats calculées ***
+        currentAggregatedPlayerStats = calculateAggregatedPlayerStats(matchesToDisplay);
 
-        if (selectedViewMode === 'player' && selectedPlayerNumber) {
-             playerSuffix = `(Player #${selectedPlayerNumber})`; // Suffixe pour vue joueur
-             // Garde la sélection du joueur si possible
-             if(playerFilterSelect) { playerFilterSelect.value = selectedPlayerNumber; }
-        }
+        populatePlayerFilterOptions(currentAggregatedPlayerStats);
+        if(selectedViewMode === 'player' && selectedPlayerNumber && playerFilterSelect) { playerFilterSelect.value = selectedPlayerNumber; }
+        else if (selectedViewMode === 'player' && !selectedPlayerNumber && playerFilterSelect) { playerFilterSelect.value = ''; }
+        if (selectedViewMode === 'player' && selectedPlayerNumber) { playerSuffix = `(Joueur #${selectedPlayerNumber})`; }
 
-        // Met à jour les titres H2
+        // MAJ Titres
         if (globalStatsTitle) globalStatsTitle.textContent = `Overall Statistics ${titleSuffix}`;
         if (playerStatsTitle) playerStatsTitle.textContent = `Player Statistics (Master) ${titleSuffix}`;
-        if (zoneStatsTitle) zoneStatsTitle.textContent = `Zone Statistics ${playerSuffix} ${titleSuffix}`; // Met à jour titre zone aussi
+        if (zoneStatsTitle) zoneStatsTitle.textContent = `Zone Statistics ${playerSuffix} ${titleSuffix}`;
 
-        // Affiche les bonnes sections / stats
-        if (selectedViewMode === 'team') {
-            displayGlobalStats(matchesToDisplay, aggregatedPlayerStats);
-            displayPlayerTable(aggregatedPlayerStats);
-            if (playerStatsSection) playerStatsSection.style.display = 'block';
-            if (selectedPlayerStatsDisplay) selectedPlayerStatsDisplay.innerHTML = '';
-        } else { // player view
-            displayGlobalStats(matchesToDisplay, aggregatedPlayerStats);
-            if (playerStatsSection) playerStatsSection.style.display = 'none';
-            displaySelectedPlayerStats(selectedPlayerNumber, aggregatedPlayerStats);
+        // Affichage sections et MAJ visibilité/texte bouton export
+        displayGlobalStats(matchesToDisplay, currentAggregatedPlayerStats);
+
+        if (exportPlayerStatsCsvBtn) { // Vérifie si le bouton existe
+            if (selectedViewMode === 'team') {
+                if (playerStatsSection) playerStatsSection.style.display = 'block';
+                displayPlayerTable(currentAggregatedPlayerStats);
+                if (selectedPlayerStatsDisplay) selectedPlayerStatsDisplay.innerHTML = '';
+                // Bouton pour export TABLEAU
+                const hasTableData = currentAggregatedPlayerStats?.players && Object.keys(currentAggregatedPlayerStats.players).length > 0;
+                exportPlayerStatsCsvBtn.textContent = '📄 Exporter Tableau (CSV)';
+                exportPlayerStatsCsvBtn.style.display = hasTableData ? 'inline-block' : 'none';
+                exportPlayerStatsCsvBtn.disabled = !hasTableData;
+            } else { // player view
+                if (playerStatsSection) playerStatsSection.style.display = 'none';
+                displaySelectedPlayerStats(selectedPlayerNumber, currentAggregatedPlayerStats);
+                // Bouton pour export VUE JOUEUR
+                const hasPlayerData = !!selectedPlayerNumber; // Activé si un joueur est sélectionné
+                exportPlayerStatsCsvBtn.textContent = '📄 Exporter Stats Joueur (.txt)';
+                exportPlayerStatsCsvBtn.style.display = 'inline-block'; // Toujours visible en mode joueur
+                exportPlayerStatsCsvBtn.disabled = !hasPlayerData; // Désactivé si aucun joueur sélectionné
+            }
+        } else {
+             console.error("Bouton export non trouvé lors de la MAJ de l'affichage !");
         }
 
-        // AJOUTÉ : Appel pour calculer et afficher les stats de zone
+        // Appel stats zone (qui va stocker dans currentZoneStats)
         calculateAndDisplayZoneStats(matchesToDisplay, selectedPlayerNumber);
+        console.log("Affichage mis à jour.");
     }
 
-    // Calcule et RETOURNE les stats globales et agrégées par joueur
-    function calculateAggregatedPlayerStats(matchesToDisplay) { /* ... (inchangé) ... */ const aggregated = { totalFaceoffs: 0, totalMasterWins: 0, players: {} }; matchesToDisplay.forEach(match => { if (match && Array.isArray(match.events)) { match.events.forEach(event => { if (event && event.type === 'faceoff') { aggregated.totalFaceoffs++; if (event.winner === 'home') { aggregated.totalMasterWins++; } if (event.homePlayerId) { const playerId = event.homePlayerId; if (!aggregated.players[playerId]) { const number = playerId.split('-')[0] || '?'; if(number && !isNaN(parseInt(number))) { aggregated.players[playerId] = { id: playerId, number: number, totalPlayed: 0, totalWins: 0 }; } else { console.warn("Invalid Master player ID found:", playerId); } } if (aggregated.players[playerId]) { aggregated.players[playerId].totalPlayed++; if (event.winner === 'home') { aggregated.players[playerId].totalWins++; } } } } }); } }); console.log("Aggregated stats calculated:", aggregated); return aggregated; }
-    // Affiche les stats globales
-    function displayGlobalStats(matchesToDisplay, aggregatedStats) { /* ... (inchangé) ... */ console.log("Displaying global stats for", matchesToDisplay.length, "game(s)"); if (!totalMatchesElement || !totalFaceoffsElement || !globalWinRateElement) { return; } const totalMatches = matchesToDisplay.length; const totalFaceoffs = aggregatedStats.totalFaceoffs; const totalMasterWins = aggregatedStats.totalMasterWins; const globalWinRate = (totalFaceoffs === 0) ? 0 : (totalMasterWins / totalFaceoffs) * 100; totalMatchesElement.textContent = totalMatches; totalFaceoffsElement.textContent = totalFaceoffs; globalWinRateElement.textContent = totalFaceoffs > 0 ? `${globalWinRate.toFixed(1)}%` : '-'; }
-    // Affiche le tableau complet des joueurs
-    function displayPlayerTable(aggregatedPlayerStats) { /* ... (inchangé - utilise '+') ... */ console.log("Affichage tableau (SANS BACKTICKS)..."); if (!playerStatsTableBody) { console.error("tbody non trouvé!"); return; } const playerStatsMap = aggregatedPlayerStats.players || {}; const playerStatsArray = Object.values(playerStatsMap).map(stats => { stats.winPct = (stats.totalPlayed === 0) ? 0 : (stats.totalWins / stats.totalPlayed) * 100; if (isNaN(stats.winPct)) { stats.winPct = 0; } return stats; }); playerStatsArray.sort((a, b) => parseInt(a.number) - parseInt(b.number)); playerStatsTableBody.innerHTML = ''; if (playerStatsArray.length === 0) { playerStatsTableBody.innerHTML = '<tr><td colspan="4" style="text-align: center;">No player data for this filter.</td></tr>'; return; } playerStatsArray.forEach(stats => { const row = playerStatsTableBody.insertRow(); row.innerHTML = '<td class="number-col">' + (stats.number ?? '?') + '</td>' + '<td class="number-col">' + (stats.totalPlayed ?? 0) + '</td>' + '<td class="number-col">' + (stats.totalWins ?? 0) + '</td>' + '<td class="pct-col">' + stats.winPct.toFixed(1) + '%</td>'; }); }
-    // Affiche les stats pour UN joueur sélectionné
-    function displaySelectedPlayerStats(playerNumber, aggregatedPlayerStats) { /* ... (inchangé - utilise '+') ... */ if (!selectedPlayerStatsDisplay) return; if (!playerNumber) { selectedPlayerStatsDisplay.innerHTML = '<p>Select a player from the menu above.</p>'; return; } let playerData = null; for (const pId in aggregatedPlayerStats.players) { if (aggregatedPlayerStats.players[pId].number === playerNumber) { playerData = aggregatedPlayerStats.players[pId]; break; } } if (!playerData) { selectedPlayerStatsDisplay.innerHTML = `<p>No data found for Player #${playerNumber} in this filter.</p>`; return; } const totalPlayed = playerData.totalPlayed ?? 0; const totalWins = playerData.totalWins ?? 0; const faceoffsLost = totalPlayed - totalWins; const winPct = (totalPlayed === 0) ? 0 : (totalWins / totalPlayed) * 100; selectedPlayerStatsDisplay.innerHTML = '<h3>Stats for Player #' + (playerData.number ?? '?') + '</h3>' + '<p><strong>FOT:</strong> ' + totalPlayed + '</p>' + '<p><strong>FOW:</strong> ' + totalWins + '</p>' + '<p><strong>FOL:</strong> ' + faceoffsLost + '</p>' + '<p><strong>%:</strong> ' + winPct.toFixed(1) + '%</p>'; }
 
-    // AJOUTÉ : Fonction pour calculer et afficher les stats par zone
+    // --- Fonctions d'Affichage ---
+    function displayGlobalStats(matchesToDisplay, aggregatedStats) {
+        // Affiche les stats globales (inchangé)
+        if (!totalMatchesElement || !totalFaceoffsElement || !globalWinRateElement) { return; }
+        const totalMatches = matchesToDisplay.length; const totalFaceoffs = aggregatedStats?.totalFaceoffs ?? 0; const totalMasterWins = aggregatedStats?.totalMasterWins ?? 0;
+        const globalWinRate = (totalFaceoffs === 0) ? 0 : (totalMasterWins / totalFaceoffs) * 100;
+        totalMatchesElement.textContent = totalMatches; totalFaceoffsElement.textContent = totalFaceoffs;
+        globalWinRateElement.textContent = totalFaceoffs > 0 ? `${globalWinRate.toFixed(1)}%` : '-';
+    }
+
+    function displayPlayerTable(aggregatedStats) {
+        // Affiche le tableau des joueurs (utilise template literals)
+        if (!playerStatsTableBody) { console.error("Table body #player-stats-table-body not found!"); return; }
+        const playerStatsMap = aggregatedStats?.players || {};
+        const playerStatsArray = Object.values(playerStatsMap).map(stats => { stats.winPct = (stats.totalPlayed === 0) ? 0 : ((stats.totalWins / stats.totalPlayed) * 100); stats.winPct = isNaN(stats.winPct) ? 0 : stats.winPct; return stats; }).sort((a, b) => parseInt(a.number) - parseInt(b.number));
+        playerStatsTableBody.innerHTML = '';
+        if (playerStatsArray.length === 0) { playerStatsTableBody.innerHTML = '<tr><td colspan="4" style="text-align: center;">No player data for this filter.</td></tr>'; return; }
+        playerStatsArray.forEach(stats => { const row = playerStatsTableBody.insertRow(); row.innerHTML = `<td class="number-col">${stats.number ?? '?'}</td><td class="number-col">${stats.totalPlayed ?? 0}</td><td class="number-col">${stats.totalWins ?? 0}</td><td class="pct-col">${stats.winPct.toFixed(1)}%</td>`; });
+    }
+
+    function displaySelectedPlayerStats(playerNumber, aggregatedStats) {
+        // Affiche les stats détaillées d'un joueur (utilise template literals)
+        if (!selectedPlayerStatsDisplay) return; if (!playerNumber) { selectedPlayerStatsDisplay.innerHTML = '<p>Select a player from the menu above.</p>'; return; } let playerData = null; const playersMap = aggregatedStats?.players || {};
+        for (const pId in playersMap) { if (playersMap[pId].number === playerNumber) { playerData = playersMap[pId]; break; } }
+        if (!playerData) { selectedPlayerStatsDisplay.innerHTML = `<p>No data found for Player #${playerNumber} in this filter.</p>`; return; }
+        const fot = playerData.totalPlayed ?? 0; const fow = playerData.totalWins ?? 0; const fol = fot - fow; const winPct = (fot === 0) ? 0 : (fow / fot) * 100;
+        selectedPlayerStatsDisplay.innerHTML = `<h3>Stats for Player #${playerData.number ?? '?'}</h3><p><strong>FOT:</strong> ${fot}</p><p><strong>FOW:</strong> ${fow}</p><p><strong>FOL:</strong> ${fol}</p><p><strong>%:</strong> ${winPct.toFixed(1)}%</p>`;
+    }
+
+    // Calcule ET STOCKE les stats de zone (MODIFIÉE pour stocker)
     function calculateAndDisplayZoneStats(matchesToDisplay, selectedPlayerNum) {
-        console.log("Calcul stats par zone pour", matchesToDisplay.length, "match(s)", selectedPlayerNum ? `et joueur #${selectedPlayerNum}` : "");
+        console.log("Calcul stats zone pour", matchesToDisplay.length, "match(s)", selectedPlayerNum ? `et joueur #${selectedPlayerNum}` : "");
+        currentZoneStats = null; // Réinitialise avant calcul
+        if (typeof faceoffPointsDefs === 'undefined' || typeof zoneMapping === 'undefined') { console.error("Definitions zones manquantes!"); return; }
+        // Vérifie si zonePctDisplays est peuplé (fait dans init)
+        if (!zonePctDisplays || Object.keys(zonePctDisplays).length < 12 || !zonePctDisplays['DZ']) { console.error("Refs DOM mini-patinoire (zonePctDisplays) non peuplées!"); return; }
 
-        // Vérifie si les définitions sont chargées (depuis utils.js)
-        if (typeof faceoffPointsDefs === 'undefined' || typeof zoneMapping === 'undefined') {
-             console.error("Définitions des zones (faceoffPointsDefs/zoneMapping) non trouvées !");
-             return;
-        }
-
-        // Initialise les compteurs pour les 9 points et les 3 zones
-        const pointStats = {};
-        faceoffPointsDefs.forEach(p => { pointStats[p.id] = { played: 0, wins: 0 }; });
+        const pointStats = {}; faceoffPointsDefs.forEach(p => { pointStats[p.id] = { played: 0, wins: 0 }; });
         const zoneSummaryStats = { 'DZ': { played: 0, wins: 0 }, 'NZ': { played: 0, wins: 0 }, 'OZ': { played: 0, wins: 0 } };
-
         let filteredEventsCount = 0;
 
-        // Itère sur les matchs filtrés
-        matchesToDisplay.forEach(match => {
-            if (match && Array.isArray(match.events)) {
-                match.events.forEach(event => {
-                    if (event && event.type === 'faceoff' && event.zoneId && pointStats[event.zoneId]) {
-                        let includeEvent = true;
+        // Itération sur les événements pour calculer les stats
+        matchesToDisplay.forEach(match => { if (match?.events) { match.events.forEach(event => { if (event?.type === 'faceoff' && event.zoneId && pointStats[event.zoneId]) { let includeEvent = true; if (selectedPlayerNum && event.homePlayerId) { const eventPlayerNumber = event.homePlayerId.split('-')[0]; if (eventPlayerNumber !== selectedPlayerNum) { includeEvent = false; } } else if (selectedPlayerNum && !event.homePlayerId) { includeEvent = false; } if (includeEvent) { filteredEventsCount++; pointStats[event.zoneId].played++; if (event.winner === 'home') { pointStats[event.zoneId].wins++; } } } }); } });
+        console.log(`Nb événements MÀJ pour zones: ${filteredEventsCount}`);
 
-                        // Si un joueur est sélectionné, filtre sur ce joueur (Master = homePlayerId)
-                        if (selectedPlayerNum && event.homePlayerId) {
-                             const eventPlayerNumber = event.homePlayerId.split('-')[0];
-                             if (eventPlayerNumber !== selectedPlayerNum) {
-                                 includeEvent = false;
-                             }
-                        } else if (selectedPlayerNum && !event.homePlayerId) {
-                             // Si on filtre par joueur mais l'event n'a pas de homePlayerId, on ignore
-                             includeEvent = false;
-                        }
+        // *** Stockage des résultats calculés ***
+        currentZoneStats = { pointStats, zoneSummaryStats };
 
-                        if (includeEvent) {
-                             filteredEventsCount++;
-                             pointStats[event.zoneId].played++;
-                             if (event.winner === 'home') {
-                                 pointStats[event.zoneId].wins++;
-                             }
-                        }
-                    }
-                });
-            }
-        });
-
-        console.log("Nombre d'événements MÀJ considérés pour les zones:", filteredEventsCount);
-
-        // Met à jour l'affichage pour les 9 points
-        for (const pointId in pointStats) {
-            const stats = pointStats[pointId];
-            const element = zonePctDisplays[pointId]; // Utilise l'objet des refs DOM
-            if (element) {
-                const pct = (stats.played === 0) ? 0 : (stats.wins / stats.played) * 100;
-                element.textContent = stats.played > 0 ? `${pct.toFixed(0)}%` : '-';
-                element.classList.remove('win', 'loss');
-                if (stats.played > 0) {
-                    element.classList.add(pct >= 50 ? 'win' : 'loss');
-                }
-            } else {
-                 // console.warn(`Élément d'affichage non trouvé pour zone-pct-display-${pointId}`);
-            }
-        }
-
-        // Calcule les stats pour les 3 zones principales à partir des stats des 9 points
-        for (const pointId in pointStats) {
-            const summaryZone = zoneMapping[pointId]; // Trouve la zone principale (DZ, NZ, OZ)
-            if (summaryZone) {
-                zoneSummaryStats[summaryZone].played += pointStats[pointId].played;
-                zoneSummaryStats[summaryZone].wins += pointStats[pointId].wins;
-            }
-        }
-
-        // Met à jour l'affichage pour les 3 zones principales
-        for (const zoneId of ['DZ', 'NZ', 'OZ']) {
-             const stats = zoneSummaryStats[zoneId];
-             const element = zonePctDisplays[zoneId]; // Utilise l'objet des refs DOM
-             if (element) {
-                 const pct = (stats.played === 0) ? 0 : (stats.wins / stats.played) * 100;
-                 element.textContent = stats.played > 0 ? `${pct.toFixed(0)}%` : '-';
-                 element.classList.remove('win', 'loss');
-                 if (stats.played > 0) {
-                     element.classList.add(pct >= 50 ? 'win' : 'loss');
-                 }
-             } else {
-                 // console.warn(`Élément d'affichage non trouvé pour zone-pct-display-${zoneId.toLowerCase()}`);
-             }
-         }
+        // Mise à jour affichage 9 points
+        for (const pointId in pointStats) { const stats = pointStats[pointId]; const element = zonePctDisplays[pointId]; if (element) { const pct = (stats.played === 0) ? 0 : (stats.wins / stats.played) * 100; element.textContent = stats.played > 0 ? `${pct.toFixed(0)}%` : '-'; element.classList.remove('win', 'loss'); if (stats.played > 0) { element.classList.add(pct >= 50 ? 'win' : 'loss'); } } }
+        // Calcul (redondant) et MAJ affichage 3 zones
+        for (const pointId in pointStats) { const summaryZone = zoneMapping[pointId]; if (summaryZone) { zoneSummaryStats[summaryZone].played += pointStats[pointId].played; zoneSummaryStats[summaryZone].wins += pointStats[pointId].wins; } } // Recalcul pour affichage
+        for (const zoneId of ['DZ', 'NZ', 'OZ']) { const stats = zoneSummaryStats[zoneId]; const element = zonePctDisplays[zoneId]; if (element) { const pct = (stats.played === 0) ? 0 : (stats.wins / stats.played) * 100; element.textContent = stats.played > 0 ? `${pct.toFixed(0)}%` : '-'; element.classList.remove('win', 'loss'); if (stats.played > 0) { element.classList.add(pct >= 50 ? 'win' : 'loss'); } } }
+        console.log("Stats mini-patinoire mises à jour ET stockées dans currentZoneStats.");
     }
+
+
+    // --- GESTION EXPORT (MODIFIÉE pour gérer les 2 modes) ---
+
+    // NOUVEAU: Fonction pour formater l'export TXT du joueur
+    function formatPlayerDetailText(playerData, zoneData, playerNumber, filterDesc) {
+        let content = `Statistiques pour Joueur #${playerNumber}\n`;
+        content += `Filtre: ${filterDesc}\n`;
+        content += `-------------------------------------\n\n`;
+        content += `Stats Résumé:\n`;
+        if (playerData) { const fot = playerData.totalPlayed ?? 0; const fow = playerData.totalWins ?? 0; const fol = fot - fow; const winPct = (fot === 0) ? 0 : (fow / fot) * 100; content += `  Mises au jeu jouées (FOT): ${fot}\n`; content += `  Mises au jeu gagnées (FOW): ${fow}\n`; content += `  Mises au jeu perdues (FOL): ${fol}\n`; content += `  Taux de Victoire: ${winPct.toFixed(1)}%\n`; }
+        else { content += `  (Aucune donnée de résumé trouvée)\n`; }
+        content += `\n`;
+        content += `Stats par Zone (% Victoire):\n`;
+        if (zoneData?.zoneSummaryStats) { for (const zoneId of ['DZ', 'NZ', 'OZ']) { const stats = zoneData.zoneSummaryStats[zoneId]; const pct = (stats.played === 0) ? 0 : (stats.wins / stats.played) * 100; content += `  ${zoneId}: ${stats.played > 0 ? pct.toFixed(0) + '%' : '-'} (${stats.wins}/${stats.played})\n`; } }
+        else { content += `  (Aucune donnée de zone sommaire trouvée)\n`; }
+        content += `\n`;
+        content += `Stats par Point de MÀJ (% Victoire):\n`;
+        if (zoneData?.pointStats && typeof faceoffPointsDefs !== 'undefined') {
+            // Utilise l'ordre défini dans faceoffPointsDefs pour l'affichage
+            faceoffPointsDefs.forEach(pointDef => {
+                 const pointId = pointDef.id;
+                 const stats = zoneData.pointStats[pointId]; // Récupère les stats calculées
+                 if(stats){
+                     const pct = (stats.played === 0) ? 0 : (stats.wins / stats.played) * 100;
+                     content += `  ${pointDef.name} (${pointId}): ${stats.played > 0 ? pct.toFixed(0) + '%' : '-'} (${stats.wins}/${stats.played})\n`;
+                 } else {
+                      content += `  ${pointDef.name} (${pointId}): - (0/0)\n`; // Affiche si pas de données
+                 }
+            });
+        } else { content += `  (Aucune donnée par point trouvée)\n`; }
+        return content;
+    }
+
+    // Gestionnaire de clic export (MODIFIÉ)
+    function handleDirectExportClick() {
+        console.log(`Clic sur Export (Mode: ${selectedViewMode})`);
+
+        // Vérifie si les fonctions utilitaires existent
+        if (typeof downloadFile !== 'function' || typeof getStoredTeamData !== 'function' || typeof slugify !== 'function') {
+            showConfirmation(statsConfirmationElement, "Erreur: Fonctions export/utilitaires manquantes.", 5000, true); return;
+        }
+
+        if (selectedViewMode === 'team') {
+            // ----- LOGIQUE EXPORT TABLEAU CSV -----
+            if (!currentAggregatedPlayerStats?.players || Object.keys(currentAggregatedPlayerStats.players).length === 0) { showConfirmation(statsConfirmationElement, "Aucune donnée de tableau à exporter.", 4000, true); return; }
+            if (typeof generatePlayerStatsCsv !== 'function') { showConfirmation(statsConfirmationElement, "Erreur: Fonction generatePlayerStatsCsv manquante.", 5000, true); return; }
+
+            const masterTeamData = getStoredTeamData(localStorage.getItem('masterTeamKey')); const masterRoster = masterTeamData?.roster || [];
+            let csvContent; try { csvContent = generatePlayerStatsCsv(currentAggregatedPlayerStats.players, masterRoster); } catch (error) { console.error("Erreur génération CSV:", error); showConfirmation(statsConfirmationElement, "Erreur création contenu CSV.", 5000, true); return; }
+            let filename = "export-stats-joueurs-tableau";
+            if (selectedFilterValue === 'all') { filename += "-tous-matchs.csv"; }
+            else { const matchInfo = allMatches.find(m => m.id === selectedFilterValue); if (matchInfo) { const date = matchInfo.startTime ? new Date(matchInfo.startTime).toISOString().split('T')[0] : 'date'; const oppNameSlug = slugify(matchInfo.opponentTeam?.name || 'adv').substring(0,15); filename += `-${oppNameSlug}-${date}.csv`; } else { filename += "-selection.csv"; } }
+            try { downloadFile(csvContent, filename, 'text/csv;charset=utf-8;'); showConfirmation(statsConfirmationElement, `Export CSV Tableau "${filename}" lancé.`, 5000); }
+            catch(error) { console.error("Erreur téléchargement CSV:", error); showConfirmation(statsConfirmationElement, "Erreur lancement téléchargement CSV.", 5000, true); }
+
+        } else if (selectedViewMode === 'player') {
+            // ----- LOGIQUE EXPORT VUE JOUEUR (TXT) -----
+            if (!selectedPlayerNumber) { showConfirmation(statsConfirmationElement, "Aucun joueur sélectionné pour l'export.", 4000, true); return; }
+            if (!currentAggregatedPlayerStats || !currentZoneStats) { showConfirmation(statsConfirmationElement, "Données joueur ou zone non disponibles pour l'export.", 4000, true); return; }
+
+            let specificPlayerData = null; const playersMap = currentAggregatedPlayerStats?.players || {};
+            for (const pId in playersMap) { if (playersMap[pId].number === selectedPlayerNumber) { specificPlayerData = playersMap[pId]; break; } }
+
+            let filterDesc = "Tous les matchs"; if (selectedFilterValue !== 'all') { const matchInfo = allMatches.find(m => m.id === selectedFilterValue); if (matchInfo) { const date = matchInfo.startTime ? new Date(matchInfo.startTime).toLocaleDateString('fr-CA') : '?'; const oppName = matchInfo.opponentTeam?.name || '?'; filterDesc = `Match vs ${oppName} (${date})`; } else { filterDesc = "Match spécifique"; } }
+
+            // Appel de la nouvelle fonction de formatage
+            const textContent = formatPlayerDetailText(specificPlayerData, currentZoneStats, selectedPlayerNumber, filterDesc);
+
+            // Création nom de fichier
+            let filename = `export-joueur-${selectedPlayerNumber}`;
+            if (selectedFilterValue === 'all') { filename += "-tous-matchs.txt"; }
+            else { const matchInfo = allMatches.find(m => m.id === selectedFilterValue); if (matchInfo) { const date = matchInfo.startTime ? new Date(matchInfo.startTime).toISOString().split('T')[0] : 'date'; const oppNameSlug = slugify(matchInfo.opponentTeam?.name || 'adv').substring(0,15); filename += `-${oppNameSlug}-${date}.txt`; } else { filename += "-selection.txt"; } }
+
+            // Lance téléchargement TXT
+             try { downloadFile(textContent, filename, 'text/plain;charset=utf-8;'); showConfirmation(statsConfirmationElement, `Export TXT Joueur "${filename}" lancé.`, 5000); }
+             catch(error) { console.error("Erreur téléchargement TXT:", error); showConfirmation(statsConfirmationElement, "Erreur lancement téléchargement TXT.", 5000, true); }
+        }
+    }
+
 
     // --- Initialisation ---
     function init() {
-        // Ajout des références DOM pour les % de zone avant l'init complet
-        // (Déjà fait en haut maintenant avec l'objet zonePctDisplays)
+        console.log("stats.js: init() start.");
 
-        if (filterSelectElement) { filterSelectElement.addEventListener('change', handleFilterChange); } else { console.error("CRITICAL ERROR: #stats-filter-select not found!"); }
-        if (viewModeRadios.length > 0) { viewModeRadios.forEach(radio => radio.addEventListener('change', handleViewModeChange)); } else { console.warn("Radios 'stats-view-mode' not found."); }
-        if (playerFilterSelect) { playerFilterSelect.addEventListener('change', handlePlayerFilterChange); } else { console.warn("Select '#player-filter-select' not found."); }
+        // Remplissage refs mini-patinoire (avec correction)
+        console.log("Remplissage zonePctDisplays...");
+        if (typeof faceoffPointsDefs !== 'undefined') {
+            faceoffPointsDefs.forEach(point => {
+                 const elementId = `zone-pct-display-${point.id}`;
+                 const element = document.getElementById(elementId);
+                 if(element) { zonePctDisplays[point.id] = element; }
+                 else { console.warn(`Element mini-patinoire non trouvé: #${elementId}`); }
+            });
+        } else { console.error("faceoffPointsDefs non défini !"); }
+        ['DZ', 'NZ', 'OZ'].forEach(zoneId => {
+             const elementId = `zone-pct-display-${zoneId.toLowerCase()}`;
+             const element = document.getElementById(elementId);
+             if(element){ zonePctDisplays[zoneId] = element; }
+             else { console.warn(`Element mini-patinoire non trouvé: #${elementId}`); }
+        });
+        if(!zonePctDisplays['DZ'] || !zonePctDisplays['NZ'] || !zonePctDisplays['OZ'] || Object.keys(zonePctDisplays).length < 12 ) {
+             console.error("Certains éléments DOM pour la mini-patinoire sont manquants ! Vérifiez les IDs dans stats.html");
+        } else { console.log("Références éléments mini-patinoire OK."); }
+
+        // Charge logo header
+        if(typeof loadAndSetHeaderLogo === 'function'){ loadAndSetHeaderLogo('header-logo'); } else { console.error("loadAndSetHeaderLogo() not found."); }
+
+        // Vérification autres éléments DOM essentiels
+        const elementsToVerify = { filterSelectElement, viewModeRadios, playerSelectContainer, playerFilterSelect, selectedPlayerStatsDisplay, playerStatsTableBody, totalMatchesElement, totalFaceoffsElement, globalWinRateElement, playerStatsSection, globalStatsTitle, playerStatsTitle, zoneStatsTitle, exportPlayerStatsCsvBtn, statsConfirmationElement };
+        let missingElement = false;
+        for(const key in elementsToVerify) { if (key === 'viewModeRadios'){ if (!elementsToVerify[key] || elementsToVerify[key].length === 0) console.warn(`DOM Element(s) '${key}' not found or empty.`); } else if (!elementsToVerify[key]){ console.error(`CRITICAL ERROR: DOM Element '${key}' not found! Check HTML ID.`); missingElement = true; } }
+        if(missingElement){ alert("Erreur: Init page stats impossible (éléments manquants). Voir console."); return; }
+        console.log("Références éléments DOM principaux OK.");
+
+        // Attache les listeners
+        filterSelectElement.addEventListener('change', handleFilterChange);
+        viewModeRadios.forEach(radio => radio.addEventListener('change', handleViewModeChange));
+        playerFilterSelect.addEventListener('change', handlePlayerFilterChange);
+        exportPlayerStatsCsvBtn.addEventListener('click', handleDirectExportClick); // Unique handler
+        console.log("Event listeners attachés.");
+
+        // Charge les données initiales
         loadMatchData();
+        console.log("stats.js: init() finished.");
     }
+
+    // Lance l'initialisation
     init();
 
 }); // End DOMContentLoaded
-// --- FIN DU CODE COMPLET POUR stats.js ---
